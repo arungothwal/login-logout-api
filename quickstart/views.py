@@ -10,6 +10,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 
 from quickstart.serializers import MyUserSerializer ,FriendSerializer
 from .models import *
+from django.http import Http404
 
 
 class CreateUser(APIView):
@@ -53,15 +54,12 @@ class UserLogin(APIView):
 
 
 
-class Logout(APIView):
+class UserLogout(APIView):
+    permission_classes = (IsAuthenticated,)
 
-    def post(self, request, format=None):
-        queryset = MyUser.objects.all()
-        # simply delete the token to force a login
-        request.user.auth_token.delete()
-        return Response(status=status.HTTP_200_OK)
-
-
+    def get(self, request):
+        logout(request)
+        return Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
 
 
 class GetAllUser(APIView):
@@ -78,7 +76,7 @@ class GetAllUser(APIView):
 
 
 class Friend_Request(APIView):
-    #permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated,)
     def get(self, obj):
         try:
             # myUserobj=Friend.objects.filter(Q(user_to_id=9) and Q(request_status='APPROVE'))
@@ -94,11 +92,8 @@ class Friend_Request(APIView):
         try:
             new_friend_obj = Friend()
 
-            user_to_object = MyUser.objects.get(id=request.data['user_to'])
-            user_from_object = MyUser.objects.get(id=request.data['user_from'])
-
-            new_friend_obj.user_to = user_to_object
-            new_friend_obj.user_from = user_from_object
+            new_friend_obj.user_to = MyUser.objects.get(id=request.data['user_to'])
+            new_friend_obj.user_from = MyUser.objects.get(id=request.data['user_from'])
 
           #  print('New user object ', new_friend_obj)
             new_friend_obj.save()
@@ -106,13 +101,13 @@ class Friend_Request(APIView):
         except Exception as error:
             return Response({"message": "Error", "data": None}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-class update_request(APIView) :
-    def get(self, obj):
-        friend_obj = Friend.objects.get(id=1)
-        print("ashgb")
-        serializer = FriendSerializer(data=friend_obj)
-        return Response(status=status.HTTP_200_OK)
+#
+# class update_request(APIView) :
+#     def get(self, obj):
+#         friend_obj = Friend.objects.get(id=1)
+#         print("ashgb")
+#         serializer = FriendSerializer(data=friend_obj)
+#         return Response(status=status.HTTP_200_OK)
 
 class update_profile(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = MyUserSerializer
@@ -120,17 +115,66 @@ class update_profile(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return MyUser.objects.all()
 
+class request_detail(APIView):
+    """
+    Retrieve, update or delete a snippet instance.
+    """
+    def get_object(self, pk):
+        print("Hello")
+
+        try:
+            return Friend.objects.get(pk=pk)
+        except Friend.DoesNotExist:
+            raise Http404
+
+    def get(self, request, pk, format=None):
+        snippet = self.get_object(pk)
+        serializer = FriendSerializer(snippet)
+        return Response(serializer.data)
+
+    def put(self, request, pk, format=None):
+        snippet = self.get_object(pk)
+
+        #
+        serializer = FriendSerializer(snippet, data=request.data)
+        if request.data['request_status'] == "APPROVE":
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+           # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"msg":"ajdbsbdah"}, status=status.HTTP_400_BAD_REQUEST)
 
 
+        # print('Put data : ', request.data)
+        # if request.data['request_status'] == "REJECT":
+        #     snippet = self.get_object(pk)
+        #     print("hagyjdgjdahjbasdjhdajkn",snippet)
+        #
+        #     del snippet
+        #     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+    def delete(self, request, pk, format=None):
+        snippet = self.get_object(pk)
+        snippet.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
-class request_detail(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = FriendSerializer
 
-    def get_queryset(self):
-        return Friend.objects.filter(user_to_id=9)
-a
+#
+#
+# class request_detail(generics.RetrieveUpdateDestroyAPIView):
+#     serializer_class = FriendSerializer
+#
+#     def get_object(self, request, pk):
+#         print('Get Object method ..', pk)
+#         friend_obj = Friend.objects.get(id=pk)
+#         return friend_obj
+#
+#
+#     def get_queryset(self):
+#         return Friend.objects.filter(user_to_id=9)
+
 
 
 
@@ -139,8 +183,8 @@ class personal_friend(APIView):
 
     def get(self, request):
         try:
-            print('Logged in user : ', request.user)
-            myUserObj = Friend.objects.filter(user_to_id=9)
+            print('Logged in user : ', request.user.id)
+            myUserObj = Friend.objects.filter(request.user.id)
             print("hjbsajhj")
             serializer = FriendSerializer(myUserObj, many=True)
             return Response({"message": "All user data", "data": serializer.data}, status=status.HTTP_200_OK)
@@ -168,18 +212,24 @@ class friend_update(generics.RetrieveUpdateDestroyAPIView):
         return MyUser.objects.all()
 
 
-class List(APIView):
+class Show_Friend(APIView):
     def get(self, obj):
-        friend_obj=Friend.objects.filter(user_to_id=9)
+        print("User", obj.user.id)
+
+        friend_obj=Friend.objects.filter(Q(user_to_id=obj.user.id) and Q(request_status='APPROVE'))
+
+        print('Friend object is : ', friend_obj)
 
         friend_list = [each_object.user_from.first_name for each_object in friend_obj]
         print('Friend list : ', friend_list)
 
-        user_obj = MyUser.objects.get(id=9)
+        user_obj = MyUser.objects.get(id=obj.user.id)
 
         user_serializer = MyUserSerializer(user_obj)
         serializer = FriendSerializer(friend_obj, many=True)
         return Response({"message": "All user data", "friend_data": friend_list, 'user_data': user_serializer.data}, status=status.HTTP_200_OK)
+
+
 
 
 
